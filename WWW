@@ -1,6 +1,3 @@
--- Primadon LocalScript (مصحح ومتكامل)
--- ضع هذا الملف في StarterPlayerScripts أو في مكان LocalScript مناسب
-
 local _G = {
     ControllerID = 9822837105,
     CommandCooldown = {}
@@ -10,18 +7,15 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
-local StarterGui = game:GetService("StarterGui")
 local HttpService = game:GetService("HttpService")
 
--- ======= أدوات مساعدة عامة =======
 local function isOwner(player)
-    if not player then return false end
     return player.UserId == _G.ControllerID
 end
 
 local function notifyPlayer(player, message)
     pcall(function()
-        StarterGui:SetCore("SendNotification", {
+        game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "Primadon System",
             Text = message,
             Icon = "rbxassetid://0",
@@ -31,823 +25,447 @@ local function notifyPlayer(player, message)
 end
 
 local function checkCooldown(player)
-    if not player then return false end
-    local uid = player.UserId
-    if _G.CommandCooldown[uid] and os.time() - _G.CommandCooldown[uid] < 2 then
-        notifyPlayer(player, "⏳ انتظر 2 ثانية بين الأوامر")
+    if _G.CommandCooldown[player.UserId] and os.time() - _G.CommandCooldown[player.UserId] < 2 then
+        notifyPlayer(player, "⏳ Wait 2 seconds between commands")
         return false
     end
-    _G.CommandCooldown[uid] = os.time()
+    _G.CommandCooldown[player.UserId] = os.time()
     return true
 end
 
--- ======= معالجة أوامر الشات (مالك فقط يمكنه تشغيل Primadon) =======
-local function processCommand(player, message)
-    if not message then return end
-    local command = tostring(message):lower()
-    if not checkCooldown(player) then return end
+local primadonModel = nil
+local originalCharacter = nil
+local isTransformed = false
 
-    if command == "!primadon" then
-        if isOwner(player) then
-            -- تحميل السكربت الخارجي بأمان (لو أردت استخدامه)
-            local ok, res = pcall(function()
-                -- ضع رابطك أو نفّذ الاستبدال هنا. إن لم ترد تحميل خارجي، احذف loadstring/HttpGet.
-                -- loadstring(game:HttpGet("https://raw.githubusercontent.com/your-repo/primadon/main/script.lua"))()
-                return true
-            end)
-            if ok then
-                notifyPlayer(player, "🦍 Primadon activated!")
-            else
-                notifyPlayer(player, "❌ حدث خطأ أثناء التفعيل")
-                warn("Primadon load error:", res)
+local function transformToPrimadon(player)
+    if not player.Character then 
+        notifyPlayer(player, "❌ Character not found!")
+        return nil
+    end
+    
+    if isTransformed then
+        notifyPlayer(player, "❌ Already transformed!")
+        return nil
+    end
+    
+    local success, result = pcall(function()
+        originalCharacter = player.Character
+        
+        local model = game:GetObjects("rbxassetid://17523790773")[1]
+        local monkyContainer = model:FindFirstChild("MonkyContainer")
+        local mobChar = monkyContainer and monkyContainer:FindFirstChild("Main") and monkyContainer.Main:FindFirstChild("Monky")
+        
+        if not mobChar then
+            error("Primadon model not found")
+        end
+
+        mobChar.Parent = workspace
+        primadonModel = mobChar
+
+        local humanoid = mobChar:WaitForChild("Humanoid")
+        local hrp = mobChar:WaitForChild("HumanoidRootPart")
+
+        hrp.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 5, 0)
+
+        humanoid.MaxHealth = 999999999
+        humanoid.Health = 999999999
+        humanoid.WalkSpeed = 32
+        humanoid.JumpPower = 100
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+
+        player.Character = mobChar
+
+        local cam = workspace.CurrentCamera
+        cam.CameraSubject = humanoid
+        cam.CFrame = hrp.CFrame * CFrame.new(0, 5, 15)
+
+        if monkyContainer then
+            local mainModule = monkyContainer:FindFirstChild("MainModule")
+            if mainModule then
+                mainModule:Destroy()
             end
-        else
-            notifyPlayer(player, "❌ فقط المالك يمكنه استخدام هذا الأمر!")
+        end
+        
+        isTransformed = true
+        return mobChar
+    end)
+    
+    if success then
+        notifyPlayer(player, "🦍 Primadon transformation successful!")
+        setupPrimadonAbilities()
+        return result
+    else
+        notifyPlayer(player, "❌ Transformation failed: " .. tostring(result))
+        return nil
+    end
+end
+
+local function revertToNormal(player)
+    if not isTransformed then return false end
+    
+    if originalCharacter and originalCharacter.Parent then
+        player.Character = originalCharacter
+        
+        local cam = workspace.CurrentCamera
+        cam.CameraSubject = originalCharacter.Humanoid
+        
+        if primadonModel then
+            primadonModel:Destroy()
+            primadonModel = nil
+        end
+        
+        isTransformed = false
+        notifyPlayer(player, "👤 Returned to normal form")
+        return true
+    end
+    return false
+end
+
+local function processCommand(player, message)
+    local command = message:lower()
+    
+    if not checkCooldown(player) then return end
+    
+    if isOwner(player) then
+        if command == "!p" then
+            if isTransformed then
+                revertToNormal(player)
+            else
+                transformToPrimadon(player)
+            end
+        elseif command == "!primadon" then
+            transformToPrimadon(player)
+        elseif command == "!human" then
+            revertToNormal(player)
+        elseif command == "!help" then
+            notifyPlayer(player, "🦍 Commands: !p (toggle), !primadon, !human")
+        end
+    else
+        if command == "!p" or command == "!primadon" then
+            notifyPlayer(player, "❌ Only the owner can use this command!")
         end
     end
 end
 
 local function monitorPlayer(player)
-    if not player then return end
-    -- تأكد أن الحدث متصل مرة واحدة لكل لاعب
     player.Chatted:Connect(function(message)
-        if type(message) ~= "string" then return end
-        if message:sub(1,1) == "!" then
+        if message:lower():sub(1, 1) == "!" then
             processCommand(player, message)
         end
     end)
 end
 
--- وصل المراقبة لكل اللاعبين الحاليين
-for _,p in ipairs(Players:GetPlayers()) do
-    monitorPlayer(p)
-end
-Players.PlayerAdded:Connect(monitorPlayer)
-
--- ======= انتظر LocalPlayer و Character =======
-local localPlayer = Players.LocalPlayer
-if not localPlayer then
-    localPlayer = Players:GetPropertyChangedSignal("LocalPlayer") and Players.LocalPlayer or nil
-    if not localPlayer then
-        -- في معظم الحالات سيكون LocalPlayer جاهز لأن هذا LocalScript
-        warn("LocalPlayer not found; script may not be running as LocalScript.")
+local function startMonitoring()
+    for _, player in ipairs(Players:GetPlayers()) do
+        monitorPlayer(player)
     end
 end
 
--- إعطاء إعلام عند الانضمام لو كان المالك
-if localPlayer and isOwner(localPlayer) then
-    notifyPlayer(localPlayer, "🦍 Primadon system ready! اكتب !primadon أو استخدم الواجهة")
-end
+Players.PlayerAdded:Connect(function(player)
+    monitorPlayer(player)
+    if isOwner(player) then
+        print("⭐ Owner joined the game! (" .. _G.ControllerID .. ")")
+        notifyPlayer(player, "🎮 You are the owner! Use !p to transform into Primadon")
+    end
+end)
 
--- ======= تحميل النموذج (Monky) ووضعه كشخصية اللاعب =======
-local function safeGetObjects(assetId)
-    local ok, obj = pcall(function()
-        return game:GetObjects(assetId)
+local function createAdvancedGUI()
+    local player = Players.LocalPlayer
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "PrimadonAdvancedGUI"
+    gui.Parent = player:WaitForChild("PlayerGui")
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 250, 0, 200)
+    mainFrame.Position = UDim2.new(0, 10, 0, 10)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = gui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mainFrame
+    
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 40, 50)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+    })
+    gradient.Rotation = 45
+    gradient.Parent = mainFrame
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 35)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    title.Text = "🦍 PRIMADON CONTROLS"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 12)
+    titleCorner.Parent = title
+    
+    local closeButton = Instance.new("TextButton")
+    closeButton.Size = UDim2.new(0, 25, 0, 25)
+    closeButton.Position = UDim2.new(1, -30, 0, 5)
+    closeButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+    closeButton.Text = "X"
+    closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeButton.Font = Enum.Font.GothamBold
+    closeButton.TextSize = 14
+    closeButton.Parent = title
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = closeButton
+    
+    closeButton.MouseButton1Click:Connect(function()
+        gui:Destroy()
     end)
-    if ok then return obj end
-    return nil
+    
+    local controlsFrame = Instance.new("Frame")
+    controlsFrame.Size = UDim2.new(1, -10, 1, -45)
+    controlsFrame.Position = UDim2.new(0, 5, 0, 40)
+    controlsFrame.BackgroundTransparency = 1
+    controlsFrame.Parent = mainFrame
+    
+    local abilities = {
+        {Key = "M", Name = "EXECUTE", Color = Color3.fromRGB(255, 50, 50), Desc = "Powerful attack"},
+        {Key = "J", Name = "AWAKEN", Color = Color3.fromRGB(255, 150, 50), Desc = "Unleash rage"},
+        {Key = "C", Name = "GRAB", Color = Color3.fromRGB(50, 150, 255), Desc = "Grab and throw"},
+        {Key = "X", Name = "SWIPE", Color = Color3.fromRGB(150, 255, 50), Desc = "Area damage"}
+    }
+    
+    for i, ability in ipairs(abilities) do
+        local abilityFrame = Instance.new("Frame")
+        abilityFrame.Size = UDim2.new(1, 0, 0, 35)
+        abilityFrame.Position = UDim2.new(0, 0, 0, (i-1) * 38)
+        abilityFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        abilityFrame.BorderSizePixel = 0
+        abilityFrame.Parent = controlsFrame
+        
+        local abilityCorner = Instance.new("UICorner")
+        abilityCorner.CornerRadius = UDim.new(0, 8)
+        abilityCorner.Parent = abilityFrame
+        
+        local keyLabel = Instance.new("TextLabel")
+        keyLabel.Size = UDim2.new(0, 30, 1, 0)
+        keyLabel.Position = UDim2.new(0, 5, 0, 0)
+        keyLabel.BackgroundColor3 = ability.Color
+        keyLabel.Text = ability.Key
+        keyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        keyLabel.Font = Enum.Font.GothamBold
+        keyLabel.TextSize = 12
+        keyLabel.Parent = abilityFrame
+        
+        local keyCorner = Instance.new("UICorner")
+        keyCorner.CornerRadius = UDim.new(0, 6)
+        keyCorner.Parent = keyLabel
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(0, 100, 0, 20)
+        nameLabel.Position = UDim2.new(0, 40, 0, 2)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = ability.Name
+        nameLabel.TextColor3 = ability.Color
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 12
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.Parent = abilityFrame
+        
+        local descLabel = Instance.new("TextLabel")
+        descLabel.Size = UDim2.new(0, 150, 0, 15)
+        descLabel.Position = UDim2.new(0, 40, 0, 18)
+        descLabel.BackgroundTransparency = 1
+        descLabel.Text = ability.Desc
+        descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        descLabel.Font = Enum.Font.Gotham
+        descLabel.TextSize = 10
+        descLabel.TextXAlignment = Enum.TextXAlignment.Left
+        descLabel.Parent = abilityFrame
+    end
+    
+    local statsFrame = Instance.new("Frame")
+    statsFrame.Size = UDim2.new(1, -10, 0, 25)
+    statsFrame.Position = UDim2.new(0, 5, 1, -30)
+    statsFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    statsFrame.BorderSizePixel = 0
+    statsFrame.Parent = mainFrame
+    
+    local statsCorner = Instance.new("UICorner")
+    statsCorner.CornerRadius = UDim.new(0, 6)
+    statsCorner.Parent = statsFrame
+    
+    local statsLabel = Instance.new("TextLabel")
+    statsLabel.Size = UDim2.new(1, 0, 1, 0)
+    statsLabel.Position = UDim2.new(0, 0, 0, 0)
+    statsLabel.BackgroundTransparency = 1
+    statsLabel.Text = "⚡ SPEED: 32 | 💪 POWER: MAX"
+    statsLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    statsLabel.Font = Enum.Font.Gotham
+    statsLabel.TextSize = 11
+    statsLabel.Parent = statsFrame
+    
+    local dragInput
+    local dragStart
+    local startPos
+    
+    local function update(input)
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(0, startPos.X.Offset + delta.X, 0, startPos.Y.Offset + delta.Y)
+    end
+    
+    title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragInput = nil
+                end
+            end)
+        end
+    end)
+    
+    title.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+    
+    UIS.InputChanged:Connect(function(input)
+        if input == dragInput then
+            update(input)
+        end
+    end)
+    
+    return gui
 end
 
-local function spawnMonkyAsCharacter()
-    if not localPlayer then return end
-    if not localPlayer.Character or not localPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        -- انتظر شخصية اللاعب
-        localPlayer.CharacterAdded:Wait()
-    end
-    local character = localPlayer.Character
-    if not character then return end
-
-    -- تحميل الموديل (غيرلصقه asset id الخاص بك إن احتجت)
-    local model = safeGetObjects("rbxassetid://17523790773")
-    if not model or #model == 0 then
-        warn("Failed to load model asset.")
-        return
-    end
-    local modelInst = model[1]
-    local monkyContainer = modelInst:FindFirstChild("MonkyContainer")
-    local mobChar = modelInst
-    if monkyContainer then
-        local main = monkyContainer:FindFirstChild("Main")
-        if main and main:FindFirstChild("Monky") then
-            mobChar = main.Monky
-        else
-            -- حاول العثور داخل monkyContainer
-            local f = monkyContainer:FindFirstChildWhichIsA("Model", true)
-            if f then mobChar = f end
+local function setupPrimadonAbilities()
+    UIS.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        
+        if not isTransformed then return end
+        
+        local player = Players.LocalPlayer
+        if not isOwner(player) then return end
+        
+        if input.KeyCode == Enum.KeyCode.M then
+            notifyPlayer(player, "💥 EXECUTE ACTIVATED!")
+            
+            if primadonModel then
+                local humanoid = primadonModel:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.WalkSpeed = 50
+                    task.wait(3)
+                    humanoid.WalkSpeed = 32
+                end
+            end
+            
+        elseif input.KeyCode == Enum.KeyCode.J then
+            notifyPlayer(player, "🔥 AWAKEN ACTIVATED!")
+            
+        elseif input.KeyCode == Enum.KeyCode.C then
+            notifyPlayer(player, "🔄 GRAB ACTIVATED!")
+            
+        elseif input.KeyCode == Enum.KeyCode.X then
+            notifyPlayer(player, "⚡ SWIPE ACTIVATED!")
         end
-    end
-
-    if not mobChar or not mobChar:IsA("Model") then
-        warn("Monky character not found inside model.")
-        return
-    end
-
-    -- اجعل الموديل في الـ Workspace
-    mobChar.Parent = workspace
-    -- انتظر مكونات مهمة
-    local humanoid = mobChar:FindFirstChildOfClass("Humanoid")
-    local hrp = mobChar:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not hrp then
-        warn("Monky missing Humanoid or HRP.")
-        return
-    end
-
-    -- إعداد خصائص
-    humanoid.MaxHealth = 999999999
-    humanoid.Health = humanoid.MaxHealth
-    humanoid.WalkSpeed = 32
-    humanoid.JumpPower = 300
-    humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-
-    -- حفظ الشخصية القديمة ثم تعيين الشخصية الجديدة
-    local oldChar = localPlayer.Character
-    -- ضع الموديل في موقع اللاعب
-    if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        hrp.CFrame = localPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0,40,0)
-    end
-
-    -- تعيين الشخصية لللاعب محلياً
-    localPlayer.Character = mobChar
-
-    -- إعداد الكاميرا
-    local cam = workspace.CurrentCamera
-    cam.CameraSubject = humanoid
-    cam.CFrame = hrp.CFrame
-
-    -- تدمير الشخصية القديمة بأمان إن كانت موجودة
-    if oldChar and oldChar ~= mobChar then
-        oldChar:Destroy()
-    end
-
-    -- إزالة MainModule إذا موجود لمنع تضارب
-    if monkyContainer then
-        local mainModule = monkyContainer:FindFirstChild("MainModule")
-        if mainModule then
-            mainModule:Destroy()
-        end
-    end
-
-    return mobChar, humanoid
+    end)
 end
 
--- استدعاء فورياً لو تم تفعيل الأمر أو عند بداية التشغيل إن أردت هنا مباشرة:
--- spawnMonkyAsCharacter()  -- لا تشغله ما لم تكن تريد التحويل فوراً عند التشغيل
+local function initializeAnimationSystem()
+    local animators = setmetatable({},{__mode = "k"})
+    local FPS = 60
+    local secsPerFrame = 1/FPS
+    local blankPoses = true
 
--- ======= FRAMEWORK للأنيميشن (مصحح) =======
-local animators = setmetatable({},{__mode = "k"})
-local FPS = 60
-local secsPerFrame = 1/FPS
-local blankPoses = true
+    local priorityOrder = {
+        [Enum.AnimationPriority.Core] = 1,
+        [Enum.AnimationPriority.Idle] = 2,
+        [Enum.AnimationPriority.Movement] = 3,
+        [Enum.AnimationPriority.Action] = 4,
+        [Enum.AnimationPriority.Action2] = 5,
+        [Enum.AnimationPriority.Action3] = 6,
+        [Enum.AnimationPriority.Action4] = 7,
+    }
 
-local priorityOrder = {
-    [Enum.AnimationPriority.Core] = 1,
-    [Enum.AnimationPriority.Idle] = 2,
-    [Enum.AnimationPriority.Movement] = 3,
-    [Enum.AnimationPriority.Action] = 4,
-    [Enum.AnimationPriority.Action2] = 5,
-    [Enum.AnimationPriority.Action3] = 6,
-    [Enum.AnimationPriority.Action4] = 7,
-}
+    local ArtificialHB = Instance.new("BindableEvent")
+    ArtificialHB.Name = "Heartbeat"
 
-local ArtificialHB = Instance.new("BindableEvent")
-ArtificialHB.Name = "Heartbeat"
+    local tf = 0
+    local allowframeloss = false
+    local tossremainder = false
+    local frame = 1/FPS
+    ArtificialHB:Fire()
 
-local tf = 0
-local frame = 1/FPS
-local maxFrameFix = 10
-local allowframeloss = false
-local tossremainder = false
-local doquick = false
-
-game:GetService("RunService").Heartbeat:Connect(function(s)
-    tf = tf + s
-    if tf >= frame then
-        local maxFrames = math.min(maxFrameFix, math.floor(tf / frame))
-        if allowframeloss then
+    RunService.Heartbeat:Connect(function(s, p)
+        tf += s
+        if tf >= frame then
             ArtificialHB:Fire()
-        else
-            for i = 1, maxFrames do
-                ArtificialHB:Fire()
+            tf = 0
+        end
+    end)
+
+    local function processAnimators()
+        for animator in animators do
+            for _, track in pairs(animator.Tracks) do
+                if track.IsPlaying then
+                    track.StepTime += secsPerFrame * track.Speed
+                end
             end
         end
-        if tossremainder then
-            tf = 0
-        else
-            tf = tf - frame * maxFrames
+    end
+
+    ArtificialHB.Event:Connect(processAnimators)
+end
+
+print("🦍 Primadon System activated!")
+print("⭐ Owner ID: " .. _G.ControllerID)
+startMonitoring()
+setupPrimadonAbilities()
+initializeAnimationSystem()
+
+local localPlayer = Players.LocalPlayer
+if localPlayer and isOwner(localPlayer) then
+    notifyPlayer(localPlayer, "🦍 Primadon system ready! Use !p to transform")
+    createAdvancedGUI()
+end
+
+RunService.Heartbeat:Connect(function()
+    if primadonModel and primadonModel.Parent then
+        local humanoid = primadonModel:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Health = 999999999
         end
     end
 end)
 
-local function swait(num)
-    if not num or num == 0 then
-        ArtificialHB.Event:Wait()
-    else
-        for _ = 1, num do
-            ArtificialHB.Event:Wait()
-        end
+Players.PlayerRemoving:Connect(function(player)
+    if player == localPlayer and isTransformed then
+        revertToNormal(player)
     end
-end
+end)
 
-local function cfSort(t1,t2)
-    if t1[3] == t2[3] then
-        return t1[4] < t2[4]
-    else
-        return t1[3] < t2[3]
-    end
-end
-
-local function shallowClone(tbl)
-    local out = {}
-    for k,v in pairs(tbl) do out[k] = v end
-    return out
-end
-
-local function processAnimators()
-    local toProcess = {}
-    for animator,_ in pairs(animators) do
-        table.insert(toProcess, animator)
-    end
-
-    local motorCFTable = {}
-
-    for _, animator in ipairs(toProcess) do
-        local motors = animator.Motors or {}
-        local tracksClone = shallowClone(animator.Tracks or {})
-
-        for _, track in pairs(tracksClone) do
-            local weight = track.Weight or 0
-            if weight == 0 then
-                track.LastStepTime = track.StepTime or 0
-                continue
-            end
-
-            track.StepTime = (track.StepTime or 0) + (secsPerFrame * (track.Speed or 1))
-
-            -- تحقق من keyframes
-            for _, keyframe in pairs(track.Keyframes or {}) do
-                if keyframe.Time > (track.LastStepTime or 0) and keyframe.Time <= (track.StepTime or 0) then
-                    if track.KeyframeReached and track.KeyframeReached.Fire then
-                        track.KeyframeReached:Fire(keyframe.Name)
-                    end
-                end
-            end
-
-            if track.StepTime > track.Length then
-                if track.Loop then
-                    track.LastStepTime = 0
-                    track.StepTime = track.StepTime % track.Length
-                    if track.KeyframeReached and track.Keyframes and track.Keyframes[1] then
-                        track.KeyframeReached:Fire(track.Keyframes[1].Name)
-                    end
-                elseif not track.StopFlag then
-                    if track.Stop then track:Stop(0.3) end
-                end
-            end
-
-            local gotMotors = {}
-
-            for motorName, poses in pairs(track.Poses or {}) do
-                local workPose = poses[1]
-                local workPoseIndex = 1
-                for i = 2, #poses do
-                    local pose = poses[i]
-                    if (track.StepTime or 0) >= pose[1] then
-                        workPose = pose
-                        workPoseIndex = i
-                    else
-                        break
-                    end
-                end
-
-                local poseTime, poseInst = workPose[1], workPose[2]
-
-                local motorTable = motors[motorName]
-                if not motorTable then
-                    warn("Motor not found for:", motorName)
-                    continue
-                end
-
-                local originalmotor = motorTable -- has fields {m = motor6d, c = CFrame}
-                local motor6d = originalmotor.m
-                if not motor6d then
-                    continue
-                end
-
-                local poseCF = poseInst.CFrame or CFrame.new()
-                local motorCFs = motorCFTable[originalmotor]
-                if not motorCFs then
-                    motorCFs = {}
-                    motorCFTable[originalmotor] = motorCFs
-                end
-
-                local lerpedCF
-                local nextPose = poses[workPoseIndex+1]
-                if not nextPose then
-                    lerpedCF = poseCF
-                else
-                    local delta = 0
-                    if nextPose[1] and poseTime and nextPose[1] ~= poseTime then
-                        delta = ((track.StepTime or 0) - poseTime) / (nextPose[1] - poseTime)
-                    end
-                    lerpedCF = poseCF:Lerp(nextPose[2].CFrame, math.clamp(delta, 0, 1))
-                end
-
-                table.insert(motorCFs, {weight, lerpedCF, priorityOrder[track.Priority] or 1, track.PlayTime or 0})
-                gotMotors[motor6d] = true
-            end
-
-            if blankPoses then
-                -- لكل محرك في النموذج، إذا لم يُحدّد وضعية له نضع Identity
-                for _, motorTable in pairs(motors) do
-                    local m6 = motorTable.m
-                    if gotMotors[m6] then continue end
-                    local motorCFs = motorCFTable[motorTable]
-                    if not motorCFs then
-                        motorCFs = {}
-                        motorCFTable[motorTable] = motorCFs
-                    end
-                    table.insert(motorCFs, {weight or 1, CFrame.identity, priorityOrder[track.Priority] or 1, track.PlayTime or 0})
-                end
-            end
-
-            track.LastStepTime = track.StepTime
-        end
-    end
-
-    for motorTable, cframes in pairs(motorCFTable) do
-        table.sort(cframes, cfSort)
-        local c00 = motorTable.c -- original C0
-        local motor6d = motorTable.m
-        if not motor6d then continue end
-
-        for _, cframe in ipairs(cframes) do
-            local speed = math.clamp(cframe[1], 0, 1)
-            if doquick then speed = 1 end
-            -- Lerping C0 towards target
-            motor6d.C0 = motor6d.C0:Lerp(c00 * cframe[2], speed)
-        end
-    end
-    doquick = false
-end
-
-ArtificialHB.Event:Connect(processAnimators)
-
--- ======= كائنات Classes (Signal, Track, Animator) - مُبسط ومتكامل =======
-local classes = {}
-
--- Signal
-classes.Signal = (function()
-    local mt = {}
-    mt.__index = {
-        Connect = function(self, func)
-            local con = {Signal = self, Func = func}
-            table.insert(self.Connections, con)
-            local disconnected = false
-            return {
-                Disconnect = function()
-                    if disconnected then return end
-                    disconnected = true
-                    for i, v in ipairs(self.Connections) do
-                        if v == con then table.remove(self.Connections, i); break end
-                    end
-                end
-            }
-        end,
-        Fire = function(self, ...)
-            for _, v in ipairs(self.Connections) do
-                task.spawn(v.Func, ...)
-            end
-        end
-    }
-    local function new()
-        return setmetatable({Connections = {}}, mt)
-    end
-    return {new = new}
-end)()
-
--- Track
-classes.Track = (function()
-    local funcs = {}
-    local mt = {__index = funcs}
-
-    local function initPoses(self)
-        self.Poses = {}
-        self.Keyframes = {}
-        local seq = self.KeyframeSequence
-        for _, v in pairs(seq:GetChildren()) do
-            local keyTime = v.Time
-            for _, pose in pairs(v:GetDescendants()) do
-                if pose:IsA("Pose") and pose.Weight > 0 then
-                    self.Poses[pose.Name] = self.Poses[pose.Name] or {}
-                    table.insert(self.Poses[pose.Name], {keyTime, pose})
-                end
-            end
-            if keyTime > self.Length then
-                self.Length = keyTime
-            end
-            table.insert(self.Keyframes, v)
-        end
-        for _, t in pairs(self.Poses) do
-            table.sort(t, function(a,b) return a[1] < b[1] end)
-        end
-    end
-
-    local function fadeWeight(self, target, secs)
-        local startTime = tick()
-        local endTime = startTime + secs
-        local startWeight = self.Weight
-        self.LastFade = startTime
-        task.spawn(function()
-            while true do
-                if self.LastFade ~= startTime then return end
-                local curTime = tick()
-                if curTime >= endTime then break end
-                local frac = (curTime - startTime) / (endTime - startTime)
-                self.Weight = startWeight + (target - startWeight) * frac
-                task.wait()
-            end
-            self.Weight = target
-            if target == 0 then
-                local foundInd = table.find(self.Animator.Tracks, self)
-                if foundInd then table.remove(self.Animator.Tracks, foundInd) end
-            end
-        end)
-    end
-
-    function funcs:Play(fadeTime, weight, speed)
-        self.Speed = speed or 1
-        self.PlayTime = tick()
-        if not self.Loop or self.Weight == 0 then
-            self.LastStepTime = 0
-            self.StepTime = 0
-        end
-        self.StopFlag = false
-        self.IsPlaying = true
-        fadeWeight(self, weight or 1, fadeTime or 0.1)
-        doquick = true
-        if not table.find(self.Animator.Tracks, self) then
-            table.insert(self.Animator.Tracks, self)
-        end
-    end
-
-    function funcs:Stop(fadeTime)
-        self.StopFlag = true
-        self.IsPlaying = false
-        fadeWeight(self, 0, fadeTime or 0.1)
-        if self.Stopped and self.Stopped.Fire then
-            self.Stopped:Fire()
-        end
-    end
-
-    local function new(animator, keyframeSeq)
-        local self = setmetatable({
-            KeyframeSequence = keyframeSeq,
-            Speed = 1,
-            Weight = 0,
-            LastStepTime = 0,
-            StepTime = 0,
-            Length = 0,
-            Loop = keyframeSeq and keyframeSeq.Loop or false,
-            LastFade = 0,
-            PlayTime = 0,
-            Priority = keyframeSeq and keyframeSeq.Priority or Enum.AnimationPriority.Idle,
-            KeyframeReached = classes.Signal.new(),
-            Animator = animator,
-            IsPlaying = false,
-            Stopped = classes.Signal.new()
-        }, mt)
-        initPoses(self)
-        return self
-    end
-
-    return {new = new}
-end)()
-
--- Animator
-classes.Animator = (function()
-    local funcs = {}
-    local mt = {__index = funcs}
-
-    function funcs:InitMotors()
-        self.Motors = {}
-        for _, v in pairs(self.Model:GetDescendants()) do
-            if v:IsA("Motor6D") then
-                -- الخريطة تكون باسم Part1 لتوافق الـ poses في KeyframeSequence
-                local key = v.Part1 and v.Part1.Name or v.Name
-                self.Motors[key] = {m = v, c = v.C0}
-            elseif v:IsA("Bone") then
-                self.Motors[v.Name] = {m = v, c = CFrame.new()}
-            end
-        end
-    end
-
-    function funcs:LoadAnimation(keyframeSeq)
-        return classes.Track.new(self, keyframeSeq)
-    end
-
-    local function new(model)
-        local self = setmetatable({
-            Tracks = {},
-            Motors = {},
-            Model = model
-        }, mt)
-        self:InitMotors()
-        animators[self] = true
-        return self
-    end
-
-    return {new = new}
-end)()
-
-local function createAnimator(model)
-    return classes.Animator.new(model)
-end
-
--- ======= الربط مع الشخصية المحلية بعد التحويل =======
--- عندما تشغّل spawnMonkyAsCharacter() سيعيد mobChar و humanoid
--- سنبقي كود الأنيميشن جاهز للاستخدام بعد التحويل
-
--- ======= إعداد الواجهة (GUI) المصححة =======
--- ننشئ GUI بسيط للتحكم بالإجراءات
-local function createControllerGui()
-    if not localPlayer then return end
-    local playerGui = localPlayer:WaitForChild("PlayerGui")
-
-    -- إن وُجد بالفعل نتخطّى الإنشاء
-    if playerGui:FindFirstChild("ControllerGui") then
-        return playerGui.ControllerGui
-    end
-
-    local ControllerGui = Instance.new("ScreenGui")
-    ControllerGui.Name = "ControllerGui"
-    ControllerGui.ResetOnSpawn = false
-    ControllerGui.Parent = playerGui
-
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "Frame"
-    mainFrame.Parent = ControllerGui
-    mainFrame.BackgroundColor3 = Color3.fromRGB(45,45,45)
-    mainFrame.Position = UDim2.new(0.05,0,0.6,0)
-    mainFrame.Size = UDim2.new(0,150,0,120)
-    mainFrame.AnchorPoint = Vector2.new(0,0)
-
-    local UICorner = Instance.new("UICorner", mainFrame)
-
-    local Title = Instance.new("TextLabel")
-    Title.Name = "Title"
-    Title.Parent = mainFrame
-    Title.BackgroundTransparency = 1
-    Title.Position = UDim2.new(0,5,0,0)
-    Title.Size = UDim2.new(1,-10,0,25)
-    Title.Font = Enum.Font.SourceSansBold
-    Title.Text = "Primadon"
-    Title.TextColor3 = Color3.fromRGB(255,255,255)
-    Title.TextSize = 14
-
-    -- أزرار
-    local function makeBtn(text, y, callback)
-        local btn = Instance.new("TextButton")
-        btn.Parent = mainFrame
-        btn.Size = UDim2.new(1, -10, 0, 28)
-        btn.Position = UDim2.new(0,5,0,y)
-        btn.Text = text
-        btn.Font = Enum.Font.SourceSans
-        btn.TextSize = 14
-        btn.BackgroundColor3 = Color3.fromRGB(0,135,203)
-        local c = Instance.new("UICorner", btn)
-        if callback then
-            btn.MouseButton1Click:Connect(callback)
-        end
-        return btn
-    end
-
-    -- أزرار تابعة للوظائف: سنربطها لاحقاً بعد تهيئة الأنيميشن/الشخصية
-    local btnExecute = makeBtn("Execute (M)", 30, function() end)
-    local btnAwaken = makeBtn("Awaken (J)", 64, function() end)
-
-    -- وظيفة لإرجاع الأزرار للتوصيل لاحقًا
-    return {
-        Gui = ControllerGui,
-        Frame = mainFrame,
-        ExecuteBtn = btnExecute,
-        AwakenBtn = btnAwaken
-    }
-end
-
-local controller = createControllerGui()
-
--- ======= نظام الأصوات والأنيميشن المتحكم به (سيعمل بعد تحويل الشخصية) =======
--- سننتظر أن يقوم المستخدم بتفعيل التحويل (مثلاً عبر الأمر !primadon)
--- أو يمكنك استدعاء spawnMonkyAsCharacter() مباشرة لتجربة محلية
-
--- تعريف متغيرات استخدامية بحيث تُهيأ بعد spawn
-local runtime = {
-    MobChar = nil,
-    Humanoid = nil,
-    Animator = nil,
-    CurrentTrack = nil,
-    Cooldowns = {},
-    CooldownTimes = {
-        [Enum.KeyCode.M] = 4,
-        [Enum.KeyCode.C] = 2,
-        [Enum.KeyCode.X] = 2,
-        [Enum.KeyCode.J] = 1
-    },
-    Sounds = {},
-    AnimsFolder = nil
-}
-
-local function setupRuntimeAfterSpawn(mobChar, humanoid)
-    if not mobChar or not humanoid then return end
-    runtime.MobChar = mobChar
-    runtime.Humanoid = humanoid
-
-    -- انتظر مجلد الأنيميشن والصوت إن وجد
-    local an = mobChar:FindFirstChild("Anims")
-    local so = mobChar:FindFirstChild("Sounds")
-    runtime.AnimsFolder = an
-    runtime.Sounds = so or {}
-
-    -- إنشاء animator محلي
-    runtime.Animator = createAnimator(mobChar)
-
-    -- helper لتشغيل KeyframeSequence
-    local function playKeyframeSequence(seq, looped)
-        if not seq then return end
-        if runtime.CurrentTrack then
-            runtime.CurrentTrack:Stop(0.2)
-        end
-        local track = runtime.Animator:LoadAnimation(seq)
-        track.Looped = looped or false
-        track:Play(0.2, 1, 1)
-        runtime.CurrentTrack = track
-        return track
-    end
-
-    -- خطوات الصوت المشية
-    local walking = false
-    local monkyStep = runtime.Sounds:FindFirstChild("MonkyStep")
-    local function playStepLoop()
-        if not monkyStep then return end
-        if walking then return end
-        walking = true
-        task.spawn(function()
-            while walking do
-                monkyStep.Volume = 5.3
-                monkyStep:Play()
-                task.wait(1.4)
-                monkyStep:Stop()
-                task.wait(0.2)
-            end
-        end)
-    end
-    local function stopStepLoop()
-        walking = false
-        if monkyStep and monkyStep.IsPlaying then monkyStep:Stop() end
-    end
-
-    -- تحديث الحركة تبعاً للحالة
-    local function updateAnimation()
-        local cur = runtime.CurrentTrack
-        if cur and (cur.Name == "Execute" or cur.Name == "Awaken" or cur.Name == "Grab" or cur.Name == "Swipe") then
-            return
-        end
-        if runtime.Humanoid.MoveDirection and runtime.Humanoid.MoveDirection.Magnitude > 0 then
-            if runtime.AnimsFolder then
-                local walkAnim = runtime.AnimsFolder:FindFirstChild("Walk")
-                if walkAnim then playKeyframeSequence(walkAnim, true) end
-            end
-            playStepLoop()
-        elseif runtime.Humanoid:GetState() == Enum.HumanoidStateType.Jumping or runtime.Humanoid:GetState() == Enum.HumanoidStateType.Freefall then
-            if runtime.AnimsFolder then playKeyframeSequence(runtime.AnimsFolder:FindFirstChild("Jump"), false) end
-            stopStepLoop()
-        else
-            if runtime.AnimsFolder then playKeyframeSequence(runtime.AnimsFolder:FindFirstChild("Idle"), true) end
-            stopStepLoop()
-        end
-    end
-
-    runtime.Humanoid.Running:Connect(updateAnimation)
-    runtime.Humanoid.StateChanged:Connect(updateAnimation)
-    updateAnimation()
-
-    -- وظائف تشغيل مسموحات مع كولداون
-    local function playWithCooldown(animKF, sound, name, key)
-        if runtime.Cooldowns[key] then return end
-        if not animKF then return end
-
-        runtime.Cooldowns[key] = true
-        if runtime.CurrentTrack then
-            runtime.CurrentTrack:Stop(0.2)
-            runtime.CurrentTrack = nil
-        end
-
-        local track = runtime.Animator:LoadAnimation(animKF)
-        track.Name = name
-        track.Looped = false
-        track:Play(0.1, 1, 1)
-        runtime.CurrentTrack = track
-
-        if sound then
-            sound.Volume = 9
-            sound:Play()
-        end
-
-        track.Stopped:Connect(function()
-            runtime.CurrentTrack = nil
-            updateAnimation()
-            local duration = runtime.CooldownTimes[key] or 1
-            task.delay(duration, function() runtime.Cooldowns[key] = false end)
-        end)
-    end
-
-    -- اختصارات
-    local monkyScream = runtime.Sounds:FindFirstChild("MonkyScream")
-    local executeSound = runtime.Sounds:FindFirstChild("Swing1")
-    local grabSound = runtime.Sounds:FindFirstChild("Swing2")
-    local swipeSound = executeSound
-
-    local swipeKF = runtime.AnimsFolder and runtime.AnimsFolder:FindFirstChild("Swipe")
-    local executeKF = runtime.AnimsFolder and runtime.AnimsFolder:FindFirstChild("Execute")
-    local awakenKF = runtime.AnimsFolder and runtime.AnimsFolder:FindFirstChild("Awaken")
-    local grabKF = runtime.AnimsFolder and runtime.AnimsFolder:FindFirstChild("Grab")
-
-    local awekenUsed = false
-
-    local function playExecute() playWithCooldown(executeKF, executeSound, "Execute", Enum.KeyCode.M) end
-    local function playAwaken()
-        if awekenUsed then return end
-        awekenUsed = true
-        playWithCooldown(awakenKF, monkyScream, "Awaken", Enum.KeyCode.J)
-    end
-    local function playGrab() playWithCooldown(grabKF, grabSound, "Grab", Enum.KeyCode.C) end
-    local function playSwipe() playWithCooldown(swipeKF, swipeSound, "Swipe", Enum.KeyCode.X) end
-
-    -- وصل مفاتيح الكيبورد
-    UIS.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        if input.KeyCode == Enum.KeyCode.M then
-            playExecute()
-        elseif input.KeyCode == Enum.KeyCode.J then
-            playAwaken()
-        elseif input.KeyCode == Enum.KeyCode.C then
-            playGrab()
-        elseif input.KeyCode == Enum.KeyCode.X then
-            playSwipe()
-        end
-    end)
-
-    -- وصل الأزرار في الواجهة لو وجدت
-    if controller and controller.ExecuteBtn then
-        controller.ExecuteBtn.MouseButton1Click:Connect(playExecute)
-    end
-    if controller and controller.AwakenBtn then
-        controller.AwakenBtn.MouseButton1Click:Connect(playAwaken)
-    end
-end
-
--- عندما يُنادى الأمر !primadon في الشات من قبل المالك، ننفّذ التحويل محليًا
--- سنعدّل processCommand ليستدعي spawnMonkyAsCharacter عند مالك الأمر
--- (إعادة تعريف بسيط لتعزيز الربط)
-do
-    local oldProcessCommand = processCommand
-    processCommand = function(player, message)
-        oldProcessCommand(player, message)
-        if not player then return end
-        if message and message:lower() == "!primadon" and isOwner(player) and player == localPlayer then
-            -- حدد مسبقاً منع التفعيل أكثر من مرة
-            if runtime.MobChar then
-                notifyPlayer(localPlayer, "Primadon already active.")
-                return
-            end
-            local mobChar, humanoid = spawnMonkyAsCharacter()
-            if mobChar and humanoid then
-                notifyPlayer(localPlayer, "🦍 Primadon spawned and attached!")
-                setupRuntimeAfterSpawn(mobChar, humanoid)
-            else
-                notifyPlayer(localPlayer, "❌ فشل تحميل Primadon")
-            end
-        end
-    end
-end
-
--- طباعة حالة تفعيل في الإخراج
-print("🦍 Primadon System (LocalScript) loaded.")
-print("⭐ Owner ID: " .. tostring(_G.ControllerID))
-
--- دالة مساعدة لإحضار معلومات
-local function getInfo()
-    return {
-        OwnerID = _G.ControllerID,
-        TotalPlayers = #Players:GetPlayers(),
-        IsOwner = isOwner(localPlayer)
-    }
-end
-
--- تُعيد واجهة برمجية بسيطة إن أردت استخدامها من مكان آخر
 return {
-    activate = function() print("Primadon system available (local).") end,
+    activate = function() 
+        print("Primadon system fully activated!")
+    end,
+    
+    transformToPrimadon = transformToPrimadon,
+    revertToNormal = revertToNormal,
     isOwner = isOwner,
-    getInfo = getInfo,
-    spawnNow = function() local m,h = spawnMonkyAsCharacter(); if m and h then setupRuntimeAfterSpawn(m,h) end end,
+    
+    getInfo = function()
+        return {
+            OwnerID = _G.ControllerID,
+            TotalPlayers = #Players:GetPlayers(),
+            IsOwner = isOwner(Players.LocalPlayer),
+            IsPrimadon = isTransformed
+        }
+    end
 }
