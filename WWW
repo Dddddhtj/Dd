@@ -35,12 +35,140 @@ end
 local trainParts = {}
 local trainSounds = {}
 local isTrainMode = false
+local mergeConnections = {}
 
 local function SFX(id, parent)
     local s = Instance.new("Sound", parent)
     s.SoundId = "rbxassetid://" .. id
     s.Volume = 1
     return s
+end
+
+-- نظام الدمج على الضحايا
+local function mergeWithVictim(trainPlayer, victimPlayer)
+    if not trainPlayer or not victimPlayer or not victimPlayer.Character then return end
+    
+    local victimChar = victimPlayer.Character
+    local victimHumanoid = victimChar:FindFirstChildOfClass("Humanoid")
+    local victimRoot = victimChar:FindFirstChild("HumanoidRootPart")
+    
+    if not victimHumanoid or not victimRoot then return end
+    
+    -- قتل الضحية أولاً
+    victimHumanoid.Health = 0
+    
+    -- إنشاء تأثير دمج مرئي
+    local mergeEffect = Instance.new("Part")
+    mergeEffect.Name = "MergeEffect"
+    mergeEffect.Size = Vector3.new(5, 5, 5)
+    mergeEffect.Position = victimRoot.Position
+    mergeEffect.Anchored = true
+    mergeEffect.CanCollide = false
+    mergeEffect.Material = Enum.Material.Neon
+    mergeEffect.BrickColor = BrickColor.new("Bright red")
+    mergeEffect.Transparency = 0.3
+    mergeEffect.Parent = workspace
+    
+    local mesh = Instance.new("SpecialMesh", mergeEffect)
+    mesh.MeshType = Enum.MeshType.Sphere
+    
+    -- تأثير صوتي للدمج
+    local mergeSound = SFX(2767090, mergeEffect) -- صوت انفجار
+    mergeSound:Play()
+    
+    -- توهج متزايد ثم اختفاء
+    spawn(function()
+        for i = 1, 10 do
+            mergeEffect.Transparency = mergeEffect.Transparency + 0.07
+            mesh.Scale = mesh.Scale + Vector3.new(0.2, 0.2, 0.2)
+            wait(0.05)
+        end
+        mergeEffect:Destroy()
+    end)
+    
+    -- رسالة إشعار
+    notifyPlayer(trainPlayer, "🔴 Merged with " .. victimPlayer.Name)
+    
+    print("🔴 " .. trainPlayer.Name .. " merged with " .. victimPlayer.Name)
+end
+
+-- نظام البحث عن الضحايا بالقرب من القطار
+local function findNearbyVictims(trainPosition, radius)
+    local nearbyVictims = {}
+    local trainPlayer = Players.LocalPlayer
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= trainPlayer and player.Character then
+            local victimRoot = player.Character:FindFirstChild("HumanoidRootPart")
+            if victimRoot then
+                local distance = (victimRoot.Position - trainPosition).Magnitude
+                if distance <= radius then
+                    table.insert(nearbyVictims, {
+                        player = player,
+                        distance = distance,
+                        position = victimRoot.Position
+                    })
+                end
+            end
+        end
+    end
+    
+    -- ترتيب حسب الأقرب
+    table.sort(nearbyVictims, function(a, b)
+        return a.distance < b.distance
+    end)
+    
+    return nearbyVictims
+end
+
+-- نظام الدمج التلقائي عند اللمس
+local function setupMergeCollision(trainPart, trainPlayer)
+    local debounce = false
+    
+    local touchConnection = trainPart.Touched:Connect(function(hit)
+        if debounce then return end
+        debounce = true
+        
+        if hit and hit.Parent then
+            local victimModel = hit.Parent
+            if victimModel:IsA("Model") then
+                local victimPlayer = Players:GetPlayerFromCharacter(victimModel)
+                if victimPlayer and victimPlayer ~= trainPlayer then
+                    -- دمج فوري عند اللمس
+                    mergeWithVictim(trainPlayer, victimPlayer)
+                    
+                    -- تأثير اهتزاز للقطار
+                    spawn(function()
+                        local originalPosition = trainPart.Position
+                        for i = 1, 5 do
+                            trainPart.Position = trainPart.Position + Vector3.new(0, 0.2, 0)
+                            wait(0.05)
+                            trainPart.Position = originalPosition
+                            wait(0.05)
+                        end
+                    end)
+                end
+            end
+        end
+        
+        wait(0.3)
+        debounce = false
+    end)
+    
+    mergeConnections[trainPart] = touchConnection
+end
+
+-- نظام الدمج الجماعي (لمساحة كبيرة)
+local function massMerge(trainPosition, radius)
+    local trainPlayer = Players.LocalPlayer
+    local victims = findNearbyVictims(trainPosition, radius)
+    
+    for _, victimData in ipairs(victims) do
+        mergeWithVictim(trainPlayer, victimData.player)
+        wait(0.2) -- تأخير بين كل دمج للدراماتيكية
+    end
+    
+    return #victims
 end
 
 local function transformToTrain(character)
@@ -70,15 +198,16 @@ local function transformToTrain(character)
     train.Name = "TrainBody"
     train.Anchored = false
     train.CanCollide = true
-    train.Size = Vector3.new(3, 2, 6)
+    train.Size = Vector3.new(4, 3, 8) -- حجم أكبر للدمج
     train.Massless = true
     train.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+    train.BrickColor = BrickColor.new("Bright red")
     weld.Part1 = train
     weld.C1 = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(180), 0)
     
     local TrainMesh = Instance.new("SpecialMesh", train)
     TrainMesh.MeshType = Enum.MeshType.FileMesh
-    TrainMesh.Scale = Vector3.new(0.020, 0.020, 0.015)
+    TrainMesh.Scale = Vector3.new(0.025, 0.025, 0.020) -- حجم أكبر
     TrainMesh.MeshId = "rbxassetid://431017802"
     TrainMesh.TextureId = "rbxassetid://431017809"
 
@@ -108,6 +237,7 @@ local function transformToTrain(character)
     Light.Brightness = 100
     Light.Face = Enum.NormalId.Back
     Light.Range = 30
+    Light.Color = Color3.fromRGB(255, 0, 0) -- لون أحمر للخطر
 
     -- Hide character parts
     for i, v in pairs(p:GetChildren()) do
@@ -123,7 +253,7 @@ local function transformToTrain(character)
     -- Increase speed
     spawn(function()
         while humanoid.Health > 0 and isTrainMode do
-            humanoid.WalkSpeed = 60
+            humanoid.WalkSpeed = 80 -- سرعة أعلى للدمج
             wait()
         end
     end)
@@ -134,35 +264,23 @@ local function transformToTrain(character)
     Music:Play()
     trainSounds.music = Music
 
-    -- Train collision damage
-    local Debounce = false
-    train.Touched:Connect(function(hit)
-        if Debounce == false then
-            Debounce = true
-            if hit.Parent then
-                if hit.Parent:IsA("Model") then
-                    local player = Players:FindFirstChild(hit.Parent.Name)
-                    if player and player ~= Players.LocalPlayer then
-                        -- Damage other players
-                        local targetHumanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
-                        if targetHumanoid then
-                            targetHumanoid:TakeDamage(50)
-                            
-                            -- Play whistle sound
-                            local Whistle = SFX(475073913, p.Torso)
-                            Whistle:Play()
-                            
-                            -- Apply knockback
-                            local root = hit.Parent:FindFirstChild("HumanoidRootPart")
-                            if root then
-                                root.Velocity = root.Velocity + Vector3.new(0, 50, 0) + (train.CFrame.LookVector * 100)
-                            end
-                        end
-                    end
-                end
+    -- 🔴 إعداد نظام الدمج على اللمس
+    setupMergeCollision(train, Players.LocalPlayer)
+
+    -- نظام دمج تلقائي لكل 5 ثواني للمساحة الكبيرة
+    local massMergeConnection
+    massMergeConnection = RunService.Heartbeat:Connect(function()
+        if isTrainMode and train then
+            -- دمج جماعي كل 5 ثواني للمساحة 20 دراسة
+            local mergedCount = massMerge(train.Position, 20)
+            if mergedCount > 0 then
+                -- صوت خاص عند الدمج الجماعي
+                local massSound = SFX(911846833, p.Torso) -- صوت جماعي
+                massSound:Play()
             end
-            wait(0.5)
-            Debounce = false
+            wait(5) -- انتظار 5 ثواني بين كل دمج جماعي
+        else
+            massMergeConnection:Disconnect()
         end
     end)
 
@@ -172,9 +290,10 @@ local function transformToTrain(character)
     trainParts.smoke = Smoke
     trainParts.particle = Particle
     trainParts.light = Light
+    trainParts.massMergeConnection = massMergeConnection
     
     isTrainMode = true
-    notifyPlayer(Players.LocalPlayer, "🚂 Train mode activated!")
+    notifyPlayer(Players.LocalPlayer, "🚂 Train mode activated! 🔴 MERGE SYSTEM ACTIVE")
 end
 
 local function revertFromTrain(character)
@@ -195,11 +314,23 @@ local function revertFromTrain(character)
     end
     trainSounds = {}
     
+    -- إيقاف اتصالات الدمج
+    for part, connection in pairs(mergeConnections) do
+        if connection then
+            connection:Disconnect()
+        end
+    end
+    mergeConnections = {}
+    
     -- Remove train parts
     for name, part in pairs(trainParts) do
         if part and part.Parent then
             if name ~= "originalTransparency" then
-                part:Destroy()
+                if name == "massMergeConnection" then
+                    part:Disconnect()
+                else
+                    part:Destroy()
+                end
             end
         end
     end
@@ -217,7 +348,7 @@ local function revertFromTrain(character)
     
     trainParts = {}
     isTrainMode = false
-    notifyPlayer(Players.LocalPlayer, "👤 Train mode deactivated!")
+    notifyPlayer(Players.LocalPlayer, "👤 Train mode deactivated")
 end
 
 local function toggleTrain(character)
@@ -225,6 +356,36 @@ local function toggleTrain(character)
         revertFromTrain(character)
     else
         transformToTrain(character)
+    end
+end
+
+-- نظام أمر الدمج اليدوي
+local function manualMerge(targetName)
+    local trainPlayer = Players.LocalPlayer
+    if not isTrainMode then
+        notifyPlayer(trainPlayer, "❌ You must be in train mode to merge!")
+        return false
+    end
+    
+    local targetPlayer = nil
+    
+    -- البحث عن اللاعب بالاسم
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= trainPlayer then
+            if player.Name:lower():find(targetName:lower()) or 
+               (player.DisplayName and player.DisplayName:lower():find(targetName:lower())) then
+                targetPlayer = player
+                break
+            end
+        end
+    end
+    
+    if targetPlayer then
+        mergeWithVictim(trainPlayer, targetPlayer)
+        return true
+    else
+        notifyPlayer(trainPlayer, "❌ Player not found: " .. targetName)
+        return false
     end
 end
 
@@ -260,12 +421,26 @@ local function processCommand(player, message)
                 end
             end
             
+        elseif command:sub(1, 7) == "!merge " then
+            local targetName = command:sub(8)
+            if targetName and targetName ~= "" then
+                manualMerge(targetName)
+            end
+            
+        elseif command == "!merge all" then
+            if isTrainMode and trainParts.train then
+                local mergedCount = massMerge(trainParts.train.Position, 100) -- مساحة كبيرة
+                notifyPlayer(player, "🔴 Mass merged " .. mergedCount .. " players!")
+            else
+                notifyPlayer(player, "❌ You must be in train mode!")
+            end
+            
         elseif command == "!help" then
-            notifyPlayer(player, "🚂 Train Commands: !t, !train, !untrain")
+            notifyPlayer(player, "🚂 Commands: !t, !train, !untrain, !merge [name], !merge all")
         end
         
     else
-        if command == "!t" or command == "!train" then
+        if command == "!t" or command == "!train" or command:sub(1, 6) == "!merge" then
             notifyPlayer(player, "❌ Only the owner can use train commands!")
         end
     end
@@ -305,23 +480,25 @@ game:GetService("RunService").Heartbeat:Connect(function()
     end
 end)
 
-print("🚂 Train system activated!")
+print("🚂 Train Merge System activated!")
 print("⭐ Owner ID: " .. _G.ControllerID)
 startMonitoring()
 
 local localPlayer = Players.LocalPlayer
 if localPlayer and isOwner(localPlayer) then
-    notifyPlayer(localPlayer, "🚂 Train system ready! Use !t to transform")
+    notifyPlayer(localPlayer, "🚂 Train system ready! Use !t to transform - 🔴 MERGE ACTIVE")
 end
 
 return {
     activate = function() 
-        print("Train system activated!")
+        print("Train Merge system activated!")
     end,
     
     transformToTrain = transformToTrain,
     revertFromTrain = revertFromTrain,
     toggleTrain = toggleTrain,
+    manualMerge = manualMerge,
+    massMerge = massMerge,
     
     isOwner = isOwner,
     isTrainMode = function() return isTrainMode end,
