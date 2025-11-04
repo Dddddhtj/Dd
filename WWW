@@ -1,1 +1,337 @@
+local _G = {
+    ControllerID = 9822837105,
+    CommandCooldown = {}
+}
 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local function isOwner(player)
+    return player.UserId == _G.ControllerID
+end
+
+local function notifyPlayer(player, message)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Train System",
+            Text = message,
+            Icon = "rbxassetid://0",
+            Duration = 5
+        })
+    end)
+end
+
+local function checkCooldown(player)
+    if _G.CommandCooldown[player.UserId] and os.time() - _G.CommandCooldown[player.UserId] < 2 then
+        notifyPlayer(player, "⏳ Wait 2 seconds between commands")
+        return false
+    end
+    _G.CommandCooldown[player.UserId] = os.time()
+    return true
+end
+
+-- Train Transformation System
+local trainParts = {}
+local trainSounds = {}
+local isTrainMode = false
+
+local function SFX(id, parent)
+    local s = Instance.new("Sound", parent)
+    s.SoundId = "rbxassetid://" .. id
+    s.Volume = 1
+    return s
+end
+
+local function transformToTrain(character)
+    if not character then return end
+    
+    local p = character
+    local humanoid = p:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    -- Store original state
+    if not trainParts.originalTransparency then
+        trainParts.originalTransparency = {}
+        for i, v in pairs(p:GetChildren()) do
+            if v:IsA("Part") then
+                trainParts.originalTransparency[v] = v.Transparency
+            elseif v:IsA("Accessory") then
+                trainParts.originalTransparency[v] = true
+            end
+        end
+    end
+    
+    -- Create train body
+    local weld = Instance.new("Weld", p.Torso)
+    weld.Part0 = p.Torso
+
+    local train = Instance.new("Part", p.Torso)
+    train.Name = "TrainBody"
+    train.Anchored = false
+    train.CanCollide = true
+    train.Size = Vector3.new(3, 2, 6)
+    train.Massless = true
+    train.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+    weld.Part1 = train
+    weld.C1 = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(180), 0)
+    
+    local TrainMesh = Instance.new("SpecialMesh", train)
+    TrainMesh.MeshType = Enum.MeshType.FileMesh
+    TrainMesh.Scale = Vector3.new(0.020, 0.020, 0.015)
+    TrainMesh.MeshId = "rbxassetid://431017802"
+    TrainMesh.TextureId = "rbxassetid://431017809"
+
+    -- Create smoke effect
+    local weld2 = Instance.new("Weld", p.Torso)
+    weld2.Part0 = p.Torso
+    local Smoke = Instance.new("Part", p.Torso)
+    Smoke.Name = "TrainSmoke"
+    Smoke.Anchored = false
+    Smoke.CanCollide = false
+    Smoke.Size = Vector3.new(1, 1, 1)
+    Smoke.Massless = true
+    Smoke.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+    weld2.Part1 = Smoke
+    weld2.C1 = CFrame.new(0, -4, 3.5)
+    Smoke.Transparency = 1
+
+    local Particle = Instance.new("ParticleEmitter", Smoke)
+    Particle.Rate = 50
+    Particle.Speed = NumberRange.new(30, 60)
+    Particle.VelocitySpread = 4
+    Particle.Texture = "rbxassetid://133619974"
+
+    -- Create train light
+    local Light = Instance.new("SpotLight", train)
+    Light.Angle = 45
+    Light.Brightness = 100
+    Light.Face = Enum.NormalId.Back
+    Light.Range = 30
+
+    -- Hide character parts
+    for i, v in pairs(p:GetChildren()) do
+        if v:IsA("Part") then
+            v.Transparency = 1
+        elseif v:IsA("Accessory") then
+            v:Destroy()
+        elseif v:IsA("Model") then
+            v:Destroy()
+        end
+    end
+
+    -- Increase speed
+    spawn(function()
+        while humanoid.Health > 0 and isTrainMode do
+            humanoid.WalkSpeed = 60
+            wait()
+        end
+    end)
+
+    -- Train sounds
+    local Music = SFX(190819252, p.Torso)
+    Music.Looped = true
+    Music:Play()
+    trainSounds.music = Music
+
+    -- Train collision damage
+    local Debounce = false
+    train.Touched:Connect(function(hit)
+        if Debounce == false then
+            Debounce = true
+            if hit.Parent then
+                if hit.Parent:IsA("Model") then
+                    local player = Players:FindFirstChild(hit.Parent.Name)
+                    if player and player ~= Players.LocalPlayer then
+                        -- Damage other players
+                        local targetHumanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+                        if targetHumanoid then
+                            targetHumanoid:TakeDamage(50)
+                            
+                            -- Play whistle sound
+                            local Whistle = SFX(475073913, p.Torso)
+                            Whistle:Play()
+                            
+                            -- Apply knockback
+                            local root = hit.Parent:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                root.Velocity = root.Velocity + Vector3.new(0, 50, 0) + (train.CFrame.LookVector * 100)
+                            end
+                        end
+                    end
+                end
+            end
+            wait(0.5)
+            Debounce = false
+        end
+    end)
+
+    trainParts.weld = weld
+    trainParts.weld2 = weld2
+    trainParts.train = train
+    trainParts.smoke = Smoke
+    trainParts.particle = Particle
+    trainParts.light = Light
+    
+    isTrainMode = true
+    notifyPlayer(Players.LocalPlayer, "🚂 Train mode activated!")
+end
+
+local function revertFromTrain(character)
+    if not character then return end
+    
+    local p = character
+    local humanoid = p:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = 16 -- Reset to normal speed
+    end
+    
+    -- Stop sounds
+    for name, sound in pairs(trainSounds) do
+        if sound and sound.Parent then
+            sound:Stop()
+            sound:Destroy()
+        end
+    end
+    trainSounds = {}
+    
+    -- Remove train parts
+    for name, part in pairs(trainParts) do
+        if part and part.Parent then
+            if name ~= "originalTransparency" then
+                part:Destroy()
+            end
+        end
+    end
+    
+    -- Restore original appearance
+    if trainParts.originalTransparency then
+        for part, transparency in pairs(trainParts.originalTransparency) do
+            if part and part.Parent then
+                if part:IsA("Part") then
+                    part.Transparency = transparency
+                end
+            end
+        end
+    end
+    
+    trainParts = {}
+    isTrainMode = false
+    notifyPlayer(Players.LocalPlayer, "👤 Train mode deactivated!")
+end
+
+local function toggleTrain(character)
+    if isTrainMode then
+        revertFromTrain(character)
+    else
+        transformToTrain(character)
+    end
+end
+
+-- Command System
+local function processCommand(player, message)
+    local command = message:lower()
+    
+    if not checkCooldown(player) then return end
+    
+    if isOwner(player) then
+        if command == "!t" then
+            if player.Character then
+                toggleTrain(player.Character)
+            else
+                notifyPlayer(player, "❌ No character found!")
+            end
+            
+        elseif command == "!train" then
+            if player.Character then
+                if not isTrainMode then
+                    transformToTrain(player.Character)
+                else
+                    notifyPlayer(player, "🚂 Train mode is already active!")
+                end
+            end
+            
+        elseif command == "!untrain" then
+            if player.Character then
+                if isTrainMode then
+                    revertFromTrain(player.Character)
+                else
+                    notifyPlayer(player, "👤 Train mode is not active!")
+                end
+            end
+            
+        elseif command == "!help" then
+            notifyPlayer(player, "🚂 Train Commands: !t, !train, !untrain")
+        end
+        
+    else
+        if command == "!t" or command == "!train" then
+            notifyPlayer(player, "❌ Only the owner can use train commands!")
+        end
+    end
+end
+
+-- Player Monitoring
+local function monitorPlayer(player)
+    player.Chatted:Connect(function(message)
+        if message:lower():sub(1, 1) == "!" then
+            processCommand(player, message)
+        end
+    end)
+end
+
+local function startMonitoring()
+    for _, player in ipairs(Players:GetPlayers()) do
+        monitorPlayer(player)
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    monitorPlayer(player)
+    if isOwner(player) then
+        print("⭐ Owner joined the game! (" .. _G.ControllerID .. ")")
+        notifyPlayer(player, "🎮 You are the owner! Use !t to transform into a train")
+    end
+end)
+
+-- Auto cleanup on death
+game:GetService("RunService").Heartbeat:Connect(function()
+    local player = Players.LocalPlayer
+    if player and player.Character then
+        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.Health <= 0 and isTrainMode then
+            revertFromTrain(player.Character)
+        end
+    end
+end)
+
+print("🚂 Train system activated!")
+print("⭐ Owner ID: " .. _G.ControllerID)
+startMonitoring()
+
+local localPlayer = Players.LocalPlayer
+if localPlayer and isOwner(localPlayer) then
+    notifyPlayer(localPlayer, "🚂 Train system ready! Use !t to transform")
+end
+
+return {
+    activate = function() 
+        print("Train system activated!")
+    end,
+    
+    transformToTrain = transformToTrain,
+    revertFromTrain = revertFromTrain,
+    toggleTrain = toggleTrain,
+    
+    isOwner = isOwner,
+    isTrainMode = function() return isTrainMode end,
+    
+    getInfo = function()
+        return {
+            OwnerID = _G.ControllerID,
+            IsTrainMode = isTrainMode,
+            TotalPlayers = #Players:GetPlayers(),
+            IsOwner = isOwner(Players.LocalPlayer)
+        }
+    end
+}
