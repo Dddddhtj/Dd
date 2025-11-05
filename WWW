@@ -362,7 +362,8 @@ local function createAnimator(model)
 	return classes.Animator.new(model)
 end
 
-local function setupPrimadonAbilities(mobChar)
+-- نظام الصوت والأنيميشن للجميع
+local function setupPrimadonAbilities(mobChar, player)
     local animsFolder = mobChar:WaitForChild("Anims")
     local soundsFolder = mobChar:WaitForChild("Sounds")
 
@@ -487,25 +488,27 @@ local function setupPrimadonAbilities(mobChar)
     local function playGrab() playWithCooldown(animsFolder:FindFirstChild("Grab"), grabSound, "Grab", Enum.KeyCode.C) end
     local function playSwipe() playWithCooldown(swipeKF, swipeSound, "Swipe", Enum.KeyCode.X) end
 
-    UIS.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        local localPlayer = Players.LocalPlayer
-        if localPlayer.Character == mobChar then
-            if input.KeyCode == Enum.KeyCode.M then
-                playExecute()
-                notifyPlayer(localPlayer, "💥 Execute activated!")
-            elseif input.KeyCode == Enum.KeyCode.J then
-                playAwaken()
-                notifyPlayer(localPlayer, "🔥 Awaken activated!")
-            elseif input.KeyCode == Enum.KeyCode.C then
-                playGrab()
-                notifyPlayer(localPlayer, "🔄 Grab activated!")
-            elseif input.KeyCode == Enum.KeyCode.X then
-                playSwipe()
-                notifyPlayer(localPlayer, "⚡ Swipe activated!")
+    -- إضافة التحكم للمالك فقط
+    if player == Players.LocalPlayer then
+        UIS.InputBegan:Connect(function(input, gpe)
+            if gpe then return end
+            if Players.LocalPlayer.Character == mobChar then
+                if input.KeyCode == Enum.KeyCode.M then
+                    playExecute()
+                    notifyPlayer(player, "💥 Execute activated!")
+                elseif input.KeyCode == Enum.KeyCode.J then
+                    playAwaken()
+                    notifyPlayer(player, "🔥 Awaken activated!")
+                elseif input.KeyCode == Enum.KeyCode.C then
+                    playGrab()
+                    notifyPlayer(player, "🔄 Grab activated!")
+                elseif input.KeyCode == Enum.KeyCode.X then
+                    playSwipe()
+                    notifyPlayer(player, "⚡ Swipe activated!")
+                end
             end
-        end
-    end)
+        end)
+    end
 end
 
 local function createControlGUI()
@@ -640,8 +643,10 @@ local function transformToPrimadon(player)
             end
         end
         
-        setupPrimadonAbilities(mobChar)
+        -- إعداد الأنيميشن والصوت للجميع
+        setupPrimadonAbilities(mobChar, player)
         
+        -- إضافة الجي يو أي للمالك فقط
         if player == Players.LocalPlayer then
             createControlGUI()
         end
